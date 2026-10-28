@@ -56,6 +56,13 @@ FUNCTION_Type_t gCurrentFunction;
 #define BEEP_NONE 0
 #define BK4819_REG_3F 0x3f
 #define BK4819_REG_02 0x02
+#define BK4819_REG_30 0x30
+#define BK4819_REG_37 0x37
+#define BK4819_REG_50 0x50
+#define BK4819_REG_70 0x70
+#define BK4819_REG_71 0x71
+#define BK4819_AF_MUTE 0
+#define BK4819_AF_BEEP 3
 #define BK4819_GPIO1_PIN29_PA_ENABLE 1
 #define BK4819_GPIO0_PIN28_RX_ENABLE 0
 #define battery_save_count_10ms 100u
@@ -70,6 +77,12 @@ void MENU_ActivateMainPage(void);
 void MDC1200_AppDisableRx(void);
 void YAN_RF_AbortRx(void);
 void AUDIO_AudioPathOff(void);
+void AUDIO_AudioPathOn(void);
+uint16_t BK4819_ReadRegister(uint8_t reg);
+void BK4819_PlayTone(uint16_t frequency, bool tuningGainSwitch);
+void BK4819_EnterTxMute(void);
+void BK4819_ExitTxMute(void);
+void BK4819_SetAF(uint8_t af);
 void BK4819_DisableVox(void);
 void BK4819_WriteRegister(uint8_t reg, uint16_t value);
 void BK4819_SetupPowerAmplifier(uint8_t bias, uint32_t frequency);

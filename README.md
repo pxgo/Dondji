@@ -95,7 +95,7 @@ https://ethanyan6.github.io/Dondji/
 - 📡 MDC1200 Roger / unit ID (TX + RX popup)
 - 📖 Built-in ZH/EN help manual
 - 📻 Common Fusion extras: dedicated FM radio screen, custom boot logo / boot sound, RX/TX timer, etc.
-- 🎮 **4D2** preset: Fusion without spectrum, with FM broadcast radio and Menu → Games → Snake. [使用与构建说明](README.zh.md#4d2-版本与贪吃蛇)
+- 🎮 **4D2** preset: Fusion without spectrum, with FM broadcast radio and Menu → Games → Snake / Piano. [使用与构建说明](README.zh.md#4d2-版本与贪吃蛇)
 
 ---
 

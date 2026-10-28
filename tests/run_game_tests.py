@@ -1,4 +1,4 @@
-"""Compile real game/snake/UI C sources against host-only stubs; no dependencies."""
+"""Compile real game/piano/snake/UI C sources against host-only stubs; no dependencies."""
 import argparse
 import os
 from pathlib import Path
@@ -29,7 +29,7 @@ def main():
             if result.returncode:
                 failures.append((name, options, "compile", result.returncode))
                 return
-            cases = ("language", "list", "board") if name == "ui" else (None,)
+            cases = ("language", "list", "board", "piano") if name == "ui" else (None,)
             for case in cases:
                 invocation = [exe] + ([case] if case else [])
                 print(subprocess.list2cmdline(invocation), flush=True)
@@ -40,11 +40,11 @@ def main():
         for optimization in ("-O0", "-O2"):
             run("snake", ["App/app/snake.c", "tests/snake_test.c"], [optimization])
             for vox in (False, True):
-                run("session", ["App/app/snake.c", "App/app/game.c",
+                run("session", ["App/app/snake.c", "App/app/game.c", "App/app/piano.c",
                                 "tests/game_session_test.c"],
                     common + [optimization] + (["-DENABLE_VOX"] if vox else []))
             for chinese in (False, True):
-                run("ui", ["App/app/snake.c", "App/app/game.c", "App/ui/game.c",
+                run("ui", ["App/app/snake.c", "App/app/game.c", "App/app/piano.c", "App/ui/game.c",
                            "tests/game_ui_test.c"],
                     common + [optimization, "-DENABLE_VOX"]
                     + (["-DENABLE_CHINESE"] if chinese else []))

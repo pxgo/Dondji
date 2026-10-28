@@ -60,6 +60,15 @@ static void Fixture(void)
     voxOff = registerWrites = restores = backlights = menuRestores = 0;
     paEnabled = rxEnabled = voxEnabled = true;
     savedMenuIndex = menuIndex = 5;
+    memset(registers, 0, sizeof(registers));
+    memset(readsByRegister, 0, sizeof(readsByRegister));
+    memset(writesByRegister, 0, sizeof(writesByRegister));
+    memset(toneHistory, 0, sizeof(toneHistory));
+    tonePlays = toneStops = audioOn = muteEnters = muteExits = 0;
+    audioEnabled = toneEnabled = false;
+    audioFilter = BK4819_AF_MUTE;
+    registers[BK4819_REG_50] = 0x1234;
+    registers[BK4819_REG_71] = 0x5678;
 }
 static void CheckRejected(void)
 {
@@ -392,6 +401,241 @@ static void TestExternalExitConditions(void)
     }
 }
 
+static void TestTwoGameList(void)
+{
+    Fixture();
+    assert(GAME_Enter() && gGameSelection == GAME_SNAKE);
+    static const KEY_Code_t directions[] = {KEY_UP, KEY_DOWN};
+    for (unsigned d = 0; d < 2; ++d) {
+        for (unsigned i = 0; i < 4; ++i) {
+            ReleaseEntry();
+            Press(directions[d]);
+            assert(gGameInList && gGameSelection == ((i + 1u) % 2u));
+            Tick(20);
+            assert(gGameSelection == ((i + 1u) % 2u));
+        }
+    }
+    assert(tonePlays == 0 && readsByRegister[BK4819_REG_50] == 0);
+}
+
+static void StartPiano(void)
+{
+    Fixture();
+    assert(GAME_Enter());
+    ReleaseEntry();
+    Press(KEY_DOWN);
+    assert(gGameSelection == GAME_PIANO && gGameInList);
+    ReleaseEntry();
+    Press(KEY_MENU);
+    assert(!gGameInList && GAME_IsActive());
+    assert(PIANO_CurrentNote() == PIANO_NO_NOTE && tonePlays == 0);
+    assert(readsByRegister[BK4819_REG_50] == 1 && readsByRegister[BK4819_REG_71] == 1);
+    Tick(40); /* the selecting MENU cannot sound or affect the previous snake */
+    assert(PIANO_CurrentNote() == PIANO_NO_NOTE && tonePlays == 0);
+    ReleaseEntry();
+}
+static void CheckSilent(void)
+{
+    assert(PIANO_CurrentNote() == PIANO_NO_NOTE);
+    assert(!audioEnabled && !gEnableSpeaker && !toneEnabled);
+    assert(!paEnabled && !rxEnabled && !gFlagPrepareTX);
+    assert(GAME_IsActive() && GAME_TxBlocked() && gCurrentFunction == FUNCTION_FOREGROUND);
+}
+static void TestPianoMappingAndDebounce(void)
+{
+    StartPiano();
+    static const KEY_Code_t keys[] = {
+        KEY_1, KEY_2, KEY_3, KEY_STAR, KEY_4, KEY_5, KEY_6,
+        KEY_0, KEY_7, KEY_8, KEY_9, KEY_F
+    };
+    static const uint16_t hz[] = {262, 294, 330, 349, 392, 440, 494, 523, 587, 659, 698, 784};
+    for (unsigned i = 0; i < 12; ++i) {
+        assert(PIANO_NoteForKey(keys[i]) == i && PIANO_Frequency((uint8_t)i) == hz[i]);
+        physicalKey = keys[i];
+        Tick(3);
+        CheckSilent();
+        assert(tonePlays == i);
+        Tick(1);
+        assert(tonePlays == i + 1 && toneHistory[i] == hz[i]);
+        assert(PIANO_CurrentNote() == i && audioEnabled && gEnableSpeaker && toneEnabled);
+        assert(!paEnabled && !rxEnabled && GAME_TxBlocked());
+        unsigned writes = registerWrites, ons = audioOn;
+        Tick(40);
+        GAME_ProcessKeys(keys[i], true, true);
+        PIANO_Play((uint8_t)i);
+        assert(tonePlays == i + 1 && registerWrites == writes && audioOn == ons);
+        physicalKey = KEY_INVALID;
+        Tick(1);
+        CheckSilent();
+        assert(toneStops == i + 1 && registers[BK4819_REG_70] == 0);
+        assert(audioFilter == BK4819_AF_MUTE && registers[BK4819_REG_30] == 0);
+    }
+    for (unsigned i = PIANO_NOTE_COUNT; i <= UINT8_MAX; ++i) {
+        assert(PIANO_Frequency((uint8_t)i) == 0);
+        PIANO_Play((uint8_t)i);
+    }
+    assert(PIANO_NoteForKey((KEY_Code_t)255) == PIANO_NO_NOTE);
+    PIANO_Play(PIANO_NO_NOTE);
+    assert(tonePlays == 12);
+
+    Press(KEY_1);
+    unsigned plays = tonePlays, stops = toneStops;
+    physicalKey = KEY_2;
+    Tick(1);
+    CheckSilent();
+    assert(toneStops == stops + 1 && tonePlays == plays);
+    Tick(2);
+    CheckSilent();
+    assert(tonePlays == plays);
+    Tick(1);
+    assert(PIANO_CurrentNote() == 1 && toneHistory[tonePlays - 1] == 294);
+    /* A bouncing transition resets the stable-sample counter. */
+    physicalKey = KEY_3;
+    Tick(3);
+    physicalKey = KEY_4;
+    Tick(3);
+    assert(tonePlays == plays + 1);
+    Tick(1);
+    assert(PIANO_CurrentNote() == 4 && toneHistory[tonePlays - 1] == 392);
+}
+static void TestPianoNonNotesAndPtt(void)
+{
+    StartPiano();
+    static const KEY_Code_t invalid[] = {
+        KEY_MENU, KEY_UP, KEY_DOWN, KEY_SIDE1, KEY_SIDE2, KEY_PTT, KEY_INVALID, (KEY_Code_t)255
+    };
+    for (unsigned i = 0; i < sizeof(invalid) / sizeof(invalid[0]); ++i) {
+        Press(KEY_1);
+        assert(PIANO_CurrentNote() == 0);
+        unsigned plays = tonePlays, stops = toneStops;
+        assert(PIANO_NoteForKey(invalid[i]) == PIANO_NO_NOTE);
+        physicalKey = invalid[i];
+        Tick(1);
+        CheckSilent();
+        assert(toneStops == stops + 1);
+        Tick(20);
+        assert(tonePlays == plays && !gGameInList);
+        CheckSilent();
+    }
+    Press(KEY_1);
+    unsigned plays = tonePlays, stops = toneStops;
+    physicalPtt = true; /* independent physical PTT, even while a note key remains down */
+    Tick(1);
+    CheckSilent();
+    assert(toneStops == stops + 1);
+    Tick(20);
+    assert(tonePlays == plays);
+    physicalPtt = false;
+    physicalKey = KEY_INVALID;
+    Tick(1);
+    CheckSilent();
+}
+static void CheckPianoRestored(void)
+{
+    assert(PIANO_CurrentNote() == PIANO_NO_NOTE && !toneEnabled && !audioEnabled && !gEnableSpeaker);
+    assert(registers[BK4819_REG_50] == 0x1234 && registers[BK4819_REG_71] == 0x5678);
+    assert(writesByRegister[BK4819_REG_50] == 1 && writesByRegister[BK4819_REG_71] == 1);
+    unsigned writes = registerWrites, off = audioOff, sleepCount = sleeps;
+    unsigned stops = toneStops, mute = muteEnters;
+    unsigned plays = tonePlays, ons = audioOn, exits = muteExits;
+    unsigned pa = paOff, rx = rxOff;
+    unsigned reads50 = readsByRegister[BK4819_REG_50], reads71 = readsByRegister[BK4819_REG_71];
+    PIANO_Close();
+    PIANO_Stop();
+    PIANO_Play(0);
+    assert(registerWrites == writes && audioOff == off && sleeps == sleepCount);
+    assert(toneStops == stops && muteEnters == mute);
+    assert(tonePlays == plays && audioOn == ons && muteExits == exits);
+    assert(paOff == pa && rxOff == rx);
+    assert(readsByRegister[BK4819_REG_50] == reads50 && readsByRegister[BK4819_REG_71] == reads71);
+}
+static void TestPianoSnapshotLifecycle(void)
+{
+    StartPiano();
+    Press(KEY_1);
+    PIANO_Open(); /* must not replace the original snapshot with playing state */
+    assert(readsByRegister[BK4819_REG_50] == 1 && readsByRegister[BK4819_REG_71] == 1);
+    PIANO_Close();
+    CheckPianoRestored();
+    registers[BK4819_REG_50] = 0xabcd;
+    registers[BK4819_REG_71] = 0xdcba;
+    PIANO_Open();
+    PIANO_Play(11);
+    assert(toneHistory[tonePlays - 1] == 784);
+    PIANO_Close();
+    assert(registers[BK4819_REG_50] == 0xabcd && registers[BK4819_REG_71] == 0xdcba);
+    assert(readsByRegister[BK4819_REG_50] == 2 && readsByRegister[BK4819_REG_71] == 2);
+    assert(writesByRegister[BK4819_REG_50] == 2 && writesByRegister[BK4819_REG_71] == 2);
+    /* Closing an opened but idle piano still restores its own snapshot. */
+    PIANO_Open();
+    unsigned stops = toneStops, off = audioOff, sleepCount = sleeps;
+    PIANO_Close();
+    assert(toneStops == stops && audioOff == off && sleeps == sleepCount);
+    assert(registers[BK4819_REG_50] == 0xabcd && registers[BK4819_REG_71] == 0xdcba);
+    GAME_Leave();
+    ReleaseExit();
+    unsigned reads = readsByRegister[BK4819_REG_50], writes = registerWrites, plays = tonePlays;
+    PIANO_Open();
+    PIANO_Play(0);
+    PIANO_Close();
+    assert(readsByRegister[BK4819_REG_50] == reads && registerWrites == writes && tonePlays == plays);
+}
+static void TestPianoCleanup(void)
+{
+    StartPiano();
+    Press(KEY_1);
+    Press(KEY_EXIT);
+    assert(gGameInList && gGameSelection == GAME_PIANO && GAME_IsActive() && restores == 0);
+    CheckPianoRestored();
+    Tick(20);
+    assert(GAME_IsActive()); /* held EXIT cannot also escape the list */
+    ReleaseEntry();
+    Press(KEY_EXIT);
+    assert(!GAME_IsActive() && menuRestores == 1 && GAME_TxBlocked());
+
+    for (GUI_DisplayType_t page = DISPLAY_MAIN; page < DISPLAY_N_ELEM; ++page) {
+        if (page == DISPLAY_GAME)
+            continue;
+        StartPiano();
+        Press(KEY_1);
+        GUI_SelectNextDisplay(page);
+        assert(!GAME_IsActive() && GAME_TxBlocked());
+        CheckPianoRestored();
+    }
+    for (unsigned mode = 0; mode < 4; ++mode) {
+        StartPiano();
+        Press(KEY_1);
+        if (mode == 0) gLowBattery = true;
+        if (mode == 1) gReducedService = true;
+        if (mode == 2) gCurrentFunction = FUNCTION_POWER_SAVE;
+        if (mode == 3) serialBusy = true;
+        GAME_Leave();
+        assert(!GAME_IsActive() && GAME_TxBlocked() && menuRestores == 1);
+        assert(restores == ((mode == 1 || mode == 2) ? 0u : 1u));
+        CheckPianoRestored();
+    }
+}
+static void TestPianoSnakeIsolation(void)
+{
+    StartGame();
+    gSnakeGame.food = 0;
+    SnakeState_t previous = gSnakeGame;
+    GAME_Leave();
+    StartPiano();
+    assert(memcmp(&previous, &gSnakeGame, sizeof(previous)) == 0);
+    Press(KEY_2);
+    Tick(80);
+    assert(memcmp(&previous, &gSnakeGame, sizeof(previous)) == 0);
+    Press(KEY_EXIT);
+    ReleaseEntry();
+    Press(KEY_UP);
+    assert(gGameInList && gGameSelection == GAME_SNAKE);
+    ReleaseEntry();
+    Press(KEY_MENU);
+    assert(gSnakeGame.status == SNAKE_RUNNING && gSnakeGame.length == 3);
+    assert(gSnakeGame.score == 0 && !gSnakeGame.turnPending);
+}
+
 int main(void)
 {
     TestEntryGuards();
@@ -402,6 +646,12 @@ int main(void)
     TestForcedExitsAndPhysicalRelease();
     TestDeferredVoxRestore();
     TestExternalExitConditions();
+    TestTwoGameList();
+    TestPianoMappingAndDebounce();
+    TestPianoNonNotesAndPtt();
+    TestPianoCleanup();
+    TestPianoSnapshotLifecycle();
+    TestPianoSnakeIsolation();
     Fixture();
     puts("game session tests passed");
     return 0;

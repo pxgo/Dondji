@@ -3,6 +3,7 @@
 
 #include <string.h>
 #include "app/game.h"
+#include "app/piano.h"
 #include "driver/st7565.h"
 #ifdef ENABLE_CHINESE
 #include "driver/py25q16.h"
@@ -29,12 +30,13 @@ const char *UI_GAME_Title(void)
     return UI_GAME_UseChinese() ? "游戏" : "Games";
 }
 
-static void DrawLabel(const char *text, uint8_t y)
+static void DrawLabel(const char *text, uint8_t y, uint8_t left)
 {
 #ifdef ENABLE_CHINESE
-    UI_PrintStringSmallAtPixel(text, 0, LCD_WIDTH - 1, y, y + 11u, 0);
+    /* This legacy text API takes LCD coordinates, including the 8px top bar. */
+    UI_PrintStringSmallAtPixel(text, left, LCD_WIDTH - 1, y + 8u, y + 19u, 0);
 #else
-    UI_PrintStringSmallNormalAt(text, 0, y);
+    UI_PrintStringSmallNormal(text, left, LCD_WIDTH - 1, y / 8u);
 #endif
 }
 
@@ -48,6 +50,27 @@ static void DrawCell(uint8_t cell, bool food)
                 UI_DrawPixelBuffer(gFrameBuffer, x + col, y + row, true);
 }
 
+static void DrawPiano(void)
+{
+    static const char notes[PIANO_NOTE_COUNT][3] = {
+        "C4", "D4", "E4", "F4", "G4", "A4", "B4",
+        "C5", "D5", "E5", "F5", "G5"
+    };
+    DrawLabel(UI_GAME_UseChinese() ? "电子琴" : "Piano", 0, 0);
+    UI_PrintStringSmallNormal("1:do 2:ri 3:mi", 0, 127, 2);
+    UI_PrintStringSmallNormal("4:so 5:la 6:xi", 0, 127, 3);
+    UI_PrintStringSmallNormal("7:ri+ 8:mi+ 9:fa+", 0, 127, 4);
+    UI_PrintStringSmallNormal("*:fa 0:do+ #:so+", 0, 127, 5);
+    const uint8_t note = PIANO_CurrentNote();
+    if (note < PIANO_NOTE_COUNT) {
+        char text[20];
+        snprintf(text, sizeof(text), "%s %uHz E:Back", notes[note], (unsigned int)PIANO_Frequency(note));
+        UI_PrintStringSmallNormal(text, 0, 127, 6);
+    } else {
+        UI_PrintStringSmallNormal("Hold key E:Back", 0, 127, 6);
+    }
+}
+
 void UI_DisplayGame(void)
 {
     char text[22];
@@ -58,10 +81,18 @@ void UI_DisplayGame(void)
     ST7565_BlitStatusLine();
 
     if (gGameInList) {
-        DrawLabel(UI_GAME_Title(), 0);
-        DrawLabel(UI_GAME_UseChinese() ? "贪吃蛇" : "Snake", 20);
-        UI_PrintStringSmallNormal("M:Start E:Back", 0, 127, 5);
-        UI_PrintStringSmallNormal("Move:2/4/6/8", 0, 127, 6);
+        DrawLabel(UI_GAME_Title(), 0, 0);
+        DrawLabel(UI_GAME_UseChinese() ? "贪吃蛇" : "Snake", 16, 16);
+        DrawLabel(UI_GAME_UseChinese() ? "电子琴" : "Piano", 32, 16);
+        const uint8_t selectedY = gGameSelection == GAME_SNAKE ? 16 : 32;
+#ifdef ENABLE_CHINESE
+        UI_PrintStringSmallAtPixel(">", 4, 4, selectedY + 8u, selectedY + 19u, 0);
+#else
+        UI_PrintStringSmallNormalAt(">", 4, selectedY);
+#endif
+        UI_PrintStringSmallNormal("M:Start E:Back", 0, 127, 6);
+    } else if (gGameSelection == GAME_PIANO) {
+        DrawPiano();
     } else {
         snprintf(text, sizeof(text), "Score:%u", (unsigned int)gSnakeGame.score);
         UI_PrintStringSmallNormalAt(text, 0, 0);

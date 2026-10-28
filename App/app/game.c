@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "game.h"
+#include "piano.h"
 
 #include "app/menu.h"
 #include "app/chFrScanner.h"
@@ -23,6 +24,7 @@
 
 SnakeState_t gSnakeGame;
 bool gGameInList;
+uint8_t gGameSelection;
 static bool active;
 static bool releasePending;
 static bool inputReady;
@@ -116,6 +118,7 @@ bool GAME_Enter(void)
 
     active = true;
     gGameInList = true;
+    gGameSelection = GAME_SNAKE;
     inputReady = false;
     releaseTicks = 0;
     keyTicks = 0;
@@ -146,6 +149,7 @@ void GAME_OnLeave(void)
 {
     if (!active)
         return;
+    PIANO_Close();
     active = false;
     releasePending = true;
 #ifdef ENABLE_VOX
@@ -207,6 +211,8 @@ void GAME_ProcessKeys(KEY_Code_t key, bool pressed, bool held)
 {
     if (!active || !pressed || held || !inputReady)
         return;
+    if (!gGameInList && gGameSelection == GAME_PIANO && key != KEY_EXIT)
+        return;
     inputReady = false;
     releaseTicks = 0;
     BACKLIGHT_TurnOn();
@@ -215,14 +221,23 @@ void GAME_ProcessKeys(KEY_Code_t key, bool pressed, bool held)
         if (gGameInList)
             GAME_Leave();
         else {
+            PIANO_Close();
             gGameInList = true;
             gUpdateDisplay = true;
         }
         return;
     }
+    if (gGameInList && (key == KEY_UP || key == KEY_DOWN)) {
+        gGameSelection = (uint8_t)((gGameSelection + 1u) % GAME_COUNT);
+        gUpdateDisplay = true;
+        return;
+    }
     if (key == KEY_MENU) {
         if (gGameInList || gSnakeGame.status == SNAKE_LOST || gSnakeGame.status == SNAKE_WON) {
-            SNAKE_Init(&gSnakeGame, seedTicks ^ gBatteryVoltageAverage);
+            if (gGameSelection == GAME_PIANO)
+                PIANO_Open();
+            else
+                SNAKE_Init(&gSnakeGame, seedTicks ^ gBatteryVoltageAverage);
             gGameInList = false;
         } else {
             gSnakeGame.status = (gSnakeGame.status == SNAKE_RUNNING) ? SNAKE_PAUSED : SNAKE_RUNNING;
@@ -240,6 +255,34 @@ void GAME_ProcessKeys(KEY_Code_t key, bool pressed, bool held)
     }
 }
 
+static void PianoKeyTick(KEY_Code_t key)
+{
+    const uint8_t oldNote = PIANO_CurrentNote();
+    if (GPIO_IsPttPressed()) {
+        PIANO_Stop();
+        lastKey = KEY_INVALID;
+        keyTicks = 0;
+    } else {
+        /* Mute on the first release/change sample. Start only after debounce;
+           piano keys may transition directly without an all-keys-up barrier. */
+        if (PIANO_NoteForKey(key) == PIANO_NO_NOTE || key != lastKey)
+            PIANO_Stop();
+        if (key != lastKey) {
+            lastKey = key;
+            keyTicks = 0;
+        } else if (key != KEY_INVALID && keyTicks < 3u && ++keyTicks == 3u) {
+            if (key == KEY_EXIT)
+                GAME_ProcessKeys(key, true, false);
+            else {
+                PIANO_Play(PIANO_NoteForKey(key));
+                BACKLIGHT_TurnOn();
+            }
+        }
+    }
+    if (oldNote != PIANO_CurrentNote())
+        gUpdateDisplay = true;
+}
+
 void GAME_Tick10ms(void)
 {
     ++seedTicks;
@@ -252,6 +295,8 @@ void GAME_Tick10ms(void)
             keyTicks = 0;
             lastKey = KEY_INVALID;
         }
+    } else if (!gGameInList && gGameSelection == GAME_PIANO) {
+        PianoKeyTick(key);
     } else if (key != lastKey) {
         lastKey = key;
         keyTicks = 0;
@@ -261,7 +306,8 @@ void GAME_Tick10ms(void)
 
     if (!active)
         return;
-    if (!gGameInList && gSnakeGame.status == SNAKE_RUNNING && ++moveTicks >= 20u) {
+    if (!gGameInList && gGameSelection == GAME_SNAKE
+            && gSnakeGame.status == SNAKE_RUNNING && ++moveTicks >= 20u) {
         moveTicks = 0;
         SNAKE_Step(&gSnakeGame);
         gUpdateDisplay = true;

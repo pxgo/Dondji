@@ -5,8 +5,15 @@
 #include "driver/keyboard.h"
 #include "app/snake.h"
 
+enum {
+    GAME_SNAKE,
+    GAME_PIANO,
+    GAME_COUNT
+};
+
 extern SnakeState_t gSnakeGame;
 extern bool gGameInList;
+extern uint8_t gGameSelection;
 
 bool GAME_Enter(void);
 bool GAME_IsActive(void);

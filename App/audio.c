@@ -49,7 +49,7 @@ static void AUDIO_PlayBeepPulse(void) {
 void AUDIO_PlayBeep(BEEP_Type_t Beep)
 {
 #ifdef ENABLE_GAME_SNAKE
-    /* Tone teardown turns RX back on, so games must remain silent. */
+    /* Ordinary beep teardown turns RX back on; games manage their own audio. */
     if (GAME_IsActive())
         return;
 #endif

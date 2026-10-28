@@ -80,9 +80,10 @@ arm-none-eabi-nm -S --size-sort build/Custom/Dondji.custom.elf
 | 配置 | Flash 已用 / 剩余（B） | RAM 链接已用 / 剩余（B） |
 | --- | --- | --- |
 | 4D2，游戏关闭 | 111208 / 9624 | 13072 / 3312 |
-| 4D2，游戏开启 | 114140 / 6692 | 13336 / 3048 |
+| 4D2，仅贪吃蛇基线 | 114140 / 6692 | 13336 / 3048 |
+| 4D2，贪吃蛇 + 电子琴 | 115188 / 5644 | 13336 / 3048 |
 
-游戏增量为 Flash **2932 B**、RAM 链接占用 **264 B**；`gSnakeGame` 为 **252 B**。Custom/Game/Fusion 回归占用与上表原始基线一致。
+当前双游戏相对关闭时增加 Flash **3980 B**、RAM 链接占用 **264 B**；`gSnakeGame` 为 **252 B**。电子琴相对仅贪吃蛇增加 **1048 B Flash**，RAM 链接总量不变（`.bss` 增4 B、保留区对齐填充减4 B，heap/stack实际保留量不变），不等于没有新增状态。Custom/Game/Fusion 回归占用与上表原始基线一致。
 
 RAM 链接占用含最小 heap/stack 保留区及对齐；剩余不是可无条件分配的栈空间。基线会随源码、工具链和开关变化，后续改动必须重新测量。
 
@@ -111,7 +112,8 @@ RAM 链接占用含最小 heap/stack 保留区及对齐；剩余不是可无条�
 - SysTick 标志不是积压任务队列；不要抢占其它模块使用的全局 tick 标志。游戏使用私有分频计数，逻辑不放在 ISR 中。
 - 新显示页同步更新 `GUI_DisplayType_t`、`UI_DisplayFunctions[]`、`ProcessKeysFunctions[]` 及条件编译断言；注意 `ENABLE_REGA` 的特殊布局。
 - launcher 默认五项，“关于”为索引 4 的特殊入口；`ENABLE_GAME_SNAKE` 开启时追加索引 5 的“游戏”，共有六项。新增项要同步图标数、中英文标签、确认分流、返回状态和边界；不能让游戏误走设置菜单过滤和保存逻辑。
-- 游戏代码位于 `App/app/game.c`、`snake.c`、`App/ui/game.c`。会话只从空闲对讲状态进入，游戏期间暂停 RX/TX；所有离页经 `GAME_OnLeave()` 清理，退出按键释放锁不能绕过。VOICE、REGA、原始 BK 寄存器调试写与游戏暂不支持共编译。
+- 游戏代码位于 `App/app/game.c`、`snake.c`、`piano.c`、`App/ui/game.c`。会话只从空闲对讲状态进入，游戏期间暂停 RX/TX；所有离页经 `GAME_OnLeave()` 清理，退出按键释放锁不能绕过。VOICE、REGA、原始 BK 寄存器调试写与游戏暂不支持共编译。
+- 电子琴沿用游戏会话保护，只启用本机音频基带链，禁止使用会开启 RF TX 链或自动恢复 RX 的提示音辅助函数。松键停音、返回列表、强制离页都必须清理音调；`REG50/71` 快照只在离开琴模式时恢复，不能回放旧RF工作状态。当前音量沿用原设置，无和弦或音频采样资源。
 - 主机游戏测试入口为 `tests/run_game_tests.py --cc <主机GCC路径>`，覆盖逻辑、会话及绘图边界；测试桩不代表真实 MCU/RF 行为。文字旧绘制 API 不保证裁剪，调用前确保实际字宽不超 128px。
 - F4HWN 普通刷新把 `gFrameBuffer[0..6]` 映射到 LCD 硬件页 1..7，顶栏单独维护。不能仅因 framebuffer 有八页就按 64px 可绘区域设计。
 - 现有 `ENABLE_FEAT_F4HWN_GAME` 仅编入 `App/app/cw.c`（F+7 CW 练习）；不是贪吃蛇框架，不擅自改义或删除 CW。其阻塞循环也不是新应用的安全模板。
