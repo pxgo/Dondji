@@ -79,6 +79,36 @@ https://ethanyan6.github.io/Dondji/
 
 ---
 
+## 4D2 版本与贪吃蛇
+
+`4D2` 是独立编译预设：继承 Fusion，保留 FM 广播收音机等功能，关闭频谱并加入贪吃蛇；不改变原有 Custom/Fusion/Game，也不是运行时切换模式。
+
+```text
+cmake --preset 4D2
+cmake --build --preset 4D2 --parallel 4
+```
+
+产物：`build/4D2/Dondji.4d2.bin`（同时生成 ELF、HEX 和 map）。也可使用 `./compile-with-docker.sh 4D2`，但该脚本会删除整个 `build` 目录，使用前先保留需要的产物。
+
+入口：**MENU → 游戏 / Games → 贪吃蛇 / Snake**。
+
+| 按键 | 作用 |
+| --- | --- |
+| MENU | 列表中开始；游戏中暂停/继续；结束后重新开始 |
+| 2 / 4 / 6 / 8 | 上 / 左 / 右 / 下 |
+| EXIT | 游戏返回列表；列表返回游戏图标 |
+
+- 游戏列表及游戏期间暂停对讲 RX/TX，顶栏显示 `RF OFF`；退出后恢复。不要在需要保持收听时使用游戏。
+- 只允许从空闲对讲状态进入；接收、发射、扫描、监听、FM 广播、低电量或串口配置期间会拒绝进入。需要先停止相关业务，再进入游戏。
+- 退出后必须释放 PTT、侧键及矩阵按键，连续确认释放后才允许新的发射操作。低电量会退出游戏；收到有效 USB/UART 配置命令也会先退出游戏再处理命令。
+- 无存档和高分写入，不改变外置 Flash 数据布局；中文标签使用现有字库，检测不到匹配字库时游戏入口/列表回退英文。
+- 实测 Arm GNU 13.3.Rel1、Release/LTO：Flash **114140 / 120832 B**，RAM 链接占用 **13336 / 16384 B**。后者包含最小堆栈保留，不代表真机栈峰值已验证。
+- `ENABLE_GAME_SNAKE` 可单独关闭。第一版要求 F4HWN，暂不支持与 VOICE、REGA 或原始 BK 寄存器调试写入功能共同启用，CMake 会拒绝这些组合。
+
+测试与风险记录见 [`analysis_file/game-snake-plan.md`](analysis_file/game-snake-plan.md)，主机测试见 [`tests/README.md`](tests/README.md)。尚未进行真机显示、射频恢复和栈水位验收；构建成功不等于可直接无风险刷入。
+
+---
+
 ## 📸 主界面
 
 <img width="643" height="407" src="https://github.com/user-attachments/assets/2097c20d-58fc-4577-ba84-dbfc83876e03" />

@@ -64,6 +64,9 @@
 #include "menu.h"
 #include "status.h"
 #include "ui.h"
+#ifdef ENABLE_GAME_SNAKE
+#include "game.h"
+#endif
 #include "dualvfo_u8g2_freq.h"
 
 #ifdef ENABLE_CHINESE
@@ -1456,13 +1459,21 @@ static void UI_MENU_DrawLauncherAbout40(uint8_t x, uint8_t y)
 
 static void UI_MENU_DrawLauncherPage(void)
 {
-    static const char * const names_en[] = {"Channel", "Settings", "Display", "Other", "About"};
+    static const char * const names_en[] = {
+        "Channel", "Settings", "Display", "Other", "About",
+#ifdef ENABLE_GAME_SNAKE
+        "Games",
+#endif
+    };
     static const char * const names_cn[] = {
         "\xe4\xbf\xa1\xe9\x81\x93",
         "\xe8\xae\xbe\xe7\xbd\xae",
         "\xe6\x98\xbe\xe7\xa4\xba",
         "\xe5\x85\xb6\xe5\xae\x83",
-        "\xe5\x85\xb3\xe4\xba\x8e"
+        "\xe5\x85\xb3\xe4\xba\x8e",
+#ifdef ENABLE_GAME_SNAKE
+        "游戏",
+#endif
     };
     const uint8_t icon_count = MENU_MainPageIconCount();
     const uint8_t idx = icon_count > 0 ? ((uint8_t)gSubMenuSelection % icon_count) : 0;
@@ -1493,6 +1504,16 @@ static void UI_MENU_DrawLauncherPage(void)
     {
         UI_MENU_DrawLauncherAbout40(icon_left, icon_top);
     }
+#ifdef ENABLE_GAME_SNAKE
+    else if (idx == 5)
+    {
+        UI_DrawRectangleBuffer(gFrameBuffer, 43, 13, 84, 34, true);
+        UI_DrawLineBuffer(gFrameBuffer, 50, 23, 60, 23, true);
+        UI_DrawLineBuffer(gFrameBuffer, 55, 18, 55, 28, true);
+        UI_DrawRectangleBuffer(gFrameBuffer, 72, 19, 75, 22, true);
+        UI_DrawRectangleBuffer(gFrameBuffer, 77, 26, 80, 29, true);
+    }
+#endif
     else
     {
         UI_DrawRectangleBuffer(gFrameBuffer, icon_left + 5, icon_top + 5, icon_left + 34, icon_top + 34, true);
@@ -1504,6 +1525,10 @@ static void UI_MENU_DrawLauncherPage(void)
     if (icon_count > 0)
     {
         const char *label = (gUiLanguage == UI_LANGUAGE_CN) ? names_cn[idx] : names_en[idx];
+#ifdef ENABLE_GAME_SNAKE
+        if (idx == 5)
+            label = UI_GAME_Title();
+#endif
         if (label[0] != 0)
         {
 #ifdef ENABLE_CHINESE

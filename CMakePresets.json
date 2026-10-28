@@ -197,6 +197,17 @@
                 "EDITION_STRING": "Fusion",
                 "TARGET": "Dondji.fusion"
             }
+        },
+        {
+            "name": "4D2",
+            "inherits": "Fusion",
+            "cacheVariables": {
+                "ENABLE_SPECTRUM": false,
+                "ENABLE_FEAT_F4HWN_SPECTRUM": false,
+                "ENABLE_GAME_SNAKE": true,
+                "EDITION_STRING": "4D2",
+                "TARGET": "Dondji.4d2"
+            }
         }
     ],
     "buildPresets": [
@@ -227,6 +238,10 @@
         {
             "name": "Fusion",
             "configurePreset": "Fusion"
+        },
+        {
+            "name": "4D2",
+            "configurePreset": "4D2"
         }
     ]
 }

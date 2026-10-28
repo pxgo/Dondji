@@ -19,6 +19,13 @@ message("Build type: " ${CMAKE_BUILD_TYPE})
 
 # ON by default: UTF-8 Chinese labels (launcher / menu), Lang setting, font path in App/CMakeLists.txt
 option(ENABLE_CHINESE "UTF-8 Chinese menu UI" ON)
+option(ENABLE_GAME_SNAKE "Cooperative Snake game and launcher" OFF)
+
+if(ENABLE_GAME_SNAKE)
+    if(NOT ENABLE_FEAT_F4HWN OR ENABLE_VOICE OR ENABLE_REGA OR ENABLE_UART_RW_BK_REGS)
+        message(FATAL_ERROR "Snake requires F4HWN, with VOICE, REGA and raw BK register writes disabled")
+    endif()
+endif()
 
 enable_language(C ASM)
 

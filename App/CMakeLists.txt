@@ -226,6 +226,11 @@ enable_feature(ENABLE_FEAT_F4HWN)
 enable_feature(ENABLE_FEAT_F4HWN_GAME
     app/cw.c
 )
+enable_feature(ENABLE_GAME_SNAKE
+    app/snake.c
+    app/game.c
+    ui/game.c
+)
 enable_feature(ENABLE_FEAT_F4HWN_SCREENSHOT 
     screenshot.c
 )

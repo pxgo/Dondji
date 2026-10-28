@@ -20,6 +20,9 @@
 #include "app/mdc1200.h"
 #include "app/mdc1200_app.h"
 #include "app/yan_id_rf.h"
+#ifdef ENABLE_GAME_SNAKE
+#include "app/game.h"
+#endif
 #if defined(ENABLE_FMRADIO)
     #include "app/fm.h"
 #endif
@@ -253,6 +256,10 @@ void FUNCTION_Transmit()
 
 void FUNCTION_Select(FUNCTION_Type_t Function)
 {
+#ifdef ENABLE_GAME_SNAKE
+    if (Function == FUNCTION_TRANSMIT && GAME_TxBlocked())
+        return;
+#endif
     const FUNCTION_Type_t PreviousFunction = gCurrentFunction;
     const bool bWasPowerSave = PreviousFunction == FUNCTION_POWER_SAVE;
 

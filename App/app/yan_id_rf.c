@@ -217,6 +217,15 @@ void YAN_RF_DisableRx(void)
     BK4819_WriteRegister(BK4819_REG_58, 0);
     BK4819_WriteRegister(BK4819_REG_59, 0x0068);
 }
+#ifdef ENABLE_GAME_SNAKE
+void YAN_RF_AbortRx(void)
+{
+    /* An interrupted frame may still own a temporary narrow-band override. */
+    yan_narrow_lock_end();
+    YAN_RF_DisableRx();
+}
+#endif
+
 void YAN_RF_OnRadioInterrupt(uint16_t status)
 {
     const bool fsk_sync    = (status & BK4819_REG_02_FSK_RX_SYNC) != 0;

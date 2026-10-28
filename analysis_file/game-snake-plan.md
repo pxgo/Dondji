@@ -1,0 +1,147 @@
+# 4D2 游戏菜单与贪吃蛇：实施和验收记录
+
+日期：2026-10-29。基于提交 `16b95d11` 的工作区实现，未提交、未刷机。
+
+状态：**已实现并通过主机测试及目标固件构建；尚未完成真机验收。**
+
+## 1. 最终范围
+
+用户确认采用 **4D2 = Fusion − 频谱 + 贪吃蛇**。
+
+- 新建独立 `4D2` configure/build preset，继承 Fusion，保留 FM 广播等其他功能。
+- 关闭 `ENABLE_SPECTRUM`、`ENABLE_FEAT_F4HWN_SPECTRUM`，启用新的 `ENABLE_GAME_SNAKE`。
+- 原有 Custom、Fusion、Game 的配置不变；`ENABLE_FEAT_F4HWN_GAME` 仍控制原来的 CW F+7。
+- 这是不同固件的编译组合，不是运行时切换模式。
+- 第一版游戏会话暂停对讲 RX/TX，不支持边玩边听或 PTT 抢占。
+- 不增加动态分配、浮点、外置 Flash 分区、游戏存档、声音资源或第二个 framebuffer。
+
+## 2. 使用和构建
+
+入口：主界面 → MENU → 第六个图标 **游戏 / Games** → **贪吃蛇 / Snake**。
+
+| 按键 | 列表 | 游戏 |
+| --- | --- | --- |
+| MENU | 开始贪吃蛇 | 暂停/继续；死亡或满盘后重开 |
+| 2 / 4 / 6 / 8 | 无额外动作，当前只有一款游戏 | 上 / 左 / 右 / 下 |
+| EXIT | 返回 launcher，保持游戏图标选中 | 返回游戏列表 |
+
+进入、跨层返回和每次操作后都需要释放按键，避免 MENU/EXIT 穿透；方向键不作长按连发，每步只接受一次有效转向。无穿墙，撞墙或撞身结束，满盘胜利。
+
+```text
+cmake --preset 4D2
+cmake --build --preset 4D2 --parallel 4
+arm-none-eabi-size -A build/4D2/Dondji.4d2.elf
+arm-none-eabi-nm -S --size-sort build/4D2/Dondji.4d2.elf
+```
+
+产物：`build/4D2/Dondji.4d2.{elf,bin,hex,map}`。没有复制或覆盖 `docs/firmware` 中的发布固件。
+
+`compile-with-docker.sh` 已接受 4D2，All 也包含它；该脚本原有的删除整个 build、同步 Fusion 发布固件的副作用不变，本轮仅做语法检查，没有执行该脚本构建。
+
+关闭游戏可用独立目录，避免覆盖正式 4D2 缓存：
+
+```text
+cmake --preset 4D2 -B build/4D2-no-game -DENABLE_GAME_SNAKE=OFF
+cmake --build build/4D2-no-game --parallel 4
+```
+
+第一版要求 F4HWN；暂不支持与 `ENABLE_VOICE`、`ENABLE_REGA`、`ENABLE_UART_RW_BK_REGS` 共编译，CMake 会明确拒绝。不是通过暗中关闭这些功能通过构建。
+
+## 3. 实现位置
+
+| 文件 | 改动 |
+| --- | --- |
+| `CMakePresets.json`、`CMakeLists.txt`、`App/CMakeLists.txt` | 独立 4D2、默认关闭的游戏开关、条件源文件及不支持组合检查 |
+| `App/app/snake.c`、`snake.h` | 无硬件依赖的纯逻辑，240 格环形队列、有界食物生成、碰撞及满盘处理 |
+| `App/app/game.c`、`game.h` | 会话进入/退出、暂停 RF、私有 10ms 分频、输入去抖和退出释放锁 |
+| `App/ui/game.c`、`game.h` | 列表、棋盘、分数、暂停/失败/胜利提示和 RF OFF 顶栏 |
+| `App/app/menu.c`、`App/ui/menu.c` | 条件追加索引 5，保留关于索引 4；游戏在设置过滤/保存之前独立分流 |
+| `App/ui/ui.h`、`ui.c`、`App/app/app.c` | 显示/按键分发表、协作式时间片、强制离页清理、电池及串口处理 |
+| `App/radio.c`、`App/functions.c`、`App/audio.c` | TX/寄存器重配保护、VOX 门控、避免提示音重新开启 RX |
+| `App/app/yan_id_rf.c`、`.h` | 游戏中止半包时恢复临时窄带覆盖并停接收 |
+| `tests/` | 主机逻辑、会话、绘图边界测试及仅供测试的硬件桩 |
+
+棋盘为 24×10 格，每格 4×4 像素，内部 96×40；边框在 framebuffer 坐标 `(15,13)..(112,54)`。遵守 F4HWN 128×56 普通绘图区，独立顶栏仍使用 `gStatusLine`。
+
+所有文字按实际小字体 6 列 + 1 列间距核算，避免旧文字 API 无裁剪造成越界。新增中文标签复用现有字体，游戏标题/列表检测字体版本及已知汉字索引，不匹配时回退英文；不改动通用字体系统。
+
+## 4. 无线与调度安全
+
+- 只接受空闲 FOREGROUND 下进入；拒绝接收、发射/尾音、PTT、双 PTT、扫描、监听、FM、低电量、串口配置和待处理设置/无线重配事务。
+- 成功进入后中止 MDC/Yan 接收、关闭音频、VOX、中断掩码、PA 和 RX，使 BK 休眠。入口 MENU 调用栈立即停止正常后处理，避免提示音或页面请求重新开启无线。
+- 游戏期间 APP_Update 跳过无线业务，10ms 仅运行游戏输入、逻辑、绘图和保留的非无线服务；500ms 保留电池采样、背光及电池保护，跳过无线、自动键锁等任务。不抢占共享 tick 标志、不阻塞主循环。
+- TX 保护覆盖全局按键分流、VOX、`RADIO_PrepareTX`、`RADIO_SetTxParameters`、`RADIO_PrepareCssTX` 和直接选择 TRANSMIT。游戏不调用设置保存来暂停无线。
+- 离页统一经过 `GAME_OnLeave()`，重置暂停期间积累的无线调度请求，恢复接收寄存器；若已进入 reduced service/POWER_SAVE，不反向唤醒 RF。
+- 退出后物理 PTT、矩阵及侧键必须连续三次 10ms 采样全部释放，才解除 TX 门禁；截图串口注入键不作为物理释放证据。
+- 可选 VOX 的恢复请求与物理释放锁分离：门禁结束若正在 INCOMING/RECEIVE/TX，等回到 FOREGROUND 才恢复，不打断收听，也不丢失恢复请求。此处物理按键释放不代表环境声音已经消失，后续正常 VOX 行为仍依用户设置。
+- 检测未充电低电量时先退出到主屏再执行电池警告/休眠；收到有效 USB 或硬件 UART 配置命令时先退出，再处理同一包，不重复取包。
+
+上述是源码与桩测试所检查的控制路径，不等价于实机已确认没有射频输出。
+
+## 5. 存储实测
+
+工具：Arm GNU Toolchain **13.3.Rel1**（GCC 13.3.1）、CMake 4.4.4、Ninja 1.13.2；Release、`-Oz`、LTO、section GC。所有配置均使用既有链接区：应用 Flash 120832 B、RAM 16384 B，未扩大区域或缩小堆栈保留量。
+
+| 配置 | Flash 已用 | Flash 剩余 | RAM 链接已用 | RAM 链接剩余 |
+| --- | ---: | ---: | ---: | ---: |
+| Custom 回归 | 105928 B | 14904 B | 12944 B | 3440 B |
+| 原 Game/CW 回归 | 114564 B | 6268 B | 13224 B | 3160 B |
+| Fusion 回归 | 119896 B | 936 B | 14600 B | 1784 B |
+| 4D2 游戏关闭 | 111208 B | 9624 B | 13072 B | 3312 B |
+| **4D2 游戏开启** | **114140 B** | **6692 B** | **13336 B** | **3048 B** |
+
+- 三个原始预设相对实施前的 Flash/RAM 差值均为 **0 B**。
+- 同 4D2 开/关比较：游戏增加 **2932 B Flash、264 B RAM 链接占用**。
+- 最终 4D2 相对原 Fusion：减少 **5756 B Flash、1264 B RAM 链接占用**。
+- `gSnakeGame` 实测 **252 B**。蛇身240 B，其余为状态/分数/随机数等；其他少量会话变量与对齐构成总增量。
+- 开启版 `.data=144 B`、`.noncacheable=352 B`、`.bss=11284 B`；Flash 数字包含 RAM 初始化段的装载副本。RAM 数字包含最小 heap/stack 及对齐，不是可无条件分配的栈空间。
+- `SectorCache` 仍占4096 B、framebuffer 仍占1024 B；没有复用或扩大它们。未新增外置 Flash 写入，已有校准/名称/字库/迁移布局保持不变。
+
+另以独立 `build/4D2-stack` 启用 `-fstack-usage` 构建，容量与正式版一致。LTO 栈报告中 `GAME_ProcessKeys=16 B`、`GAME_Leave=8 B`、`UI_DisplayGame=48 B`、`DrawCell=32 B`、`PlaceFood=24 B`，是**单函数栈帧**而非完整调用链/ISR峰值。现有设置函数有超过2 KiB的栈帧，不能据此声称预留1 KiB就是全局安全值；仍需真机栈水位和中断嵌套验收。
+
+## 6. 已执行验证
+
+### 构建
+
+- [x] 默认 4D2 游戏开启：通过，生成 BIN/ELF/HEX/map。
+- [x] 同 4D2 游戏关闭：通过，完成增量比较。
+- [x] 原 Custom、Fusion、Game：通过，容量与原基线一致。
+- [x] 4D2 + VOX + 截图串口键：通过（116312 B Flash / 14392 B RAM），仅用于条件编译覆盖，不覆盖正式配置。
+- [x] 4D2 关闭 FM、自动休眠及灯光，开启 VOX：通过（108192 B Flash / 13200 B RAM）。
+- [x] 独立 `-fstack-usage` 构建：通过，审阅新增路径的单函数栈帧。
+- [x] Docker 脚本语法检查；差异空白检查按既有 CRLF 格式使用 `git -c core.whitespace=cr-at-eol diff --check`。
+
+构建有 LTO 串行编译提示，不影响链接结果。
+
+额外探索的“同时关闭中文、UART、USB、FM等”组合链接失败：已有菜单缺 `UI_SmallStringPixelWidth`/`UI_PrintStringSmallAtPixel`，MDC 缺 `compute_crc`。关闭游戏后的同配置也重现，属于既有功能依赖问题；本轮未修改这些无关模块，也未将该组合宣称为通过。正式4D2不使用此组合。
+
+### 主机测试
+
+```text
+python tests/run_game_tests.py --cc <主机GCC完整路径>
+```
+
+本机实际执行：`C:/Espressif/tools/python/python.exe tests/run_game_tests.py --cc C:/msys64/mingw64/bin/gcc.exe`。
+
+GCC 15.2.0、C11、`-Wall -Wextra -Wpedantic -Werror`，O0/O2 全部通过：
+
+- [x] 四面撞墙、撞身、允许旧尾格、吃食增长、240槽回绕、满盘胜利。
+- [x] 65536个初始化种子、食物不落蛇身、有界生成、长期移动至满盘。
+- [x] 反向/同向/每步一次转向；暂停、死亡/胜利不移动。
+- [x] 会话入口拒绝、关闭PA/RX、入口按键不穿透、操作去抖、暂停重开、两级EXIT。
+- [x] 普通离页/强制退出、持PTT/侧键/矩阵按键时保持门禁、三次连续释放、截图注入键防护。
+- [x] VOX开/关，INCOMING/RECEIVE/TX期间延后恢复，返回FOREGROUND后仅恢复一次。
+- [x] 中文开/关、字体回退、所有游戏页和终局覆盖层的文字/像素边界及framebuffer/status canary。
+
+测试使用真实game/snake/UI源码，但替换RF、GUI和字体等依赖；未完整执行真实app.c/menu.c/radio.c，不把桩模拟称为真实硬件验证。详见 `tests/README.md`。
+
+## 7. 未执行的真机验收
+
+- [ ] 中英文、无字库、五/六图标导航、游戏图标记忆、关于入口及真实LCD绘制。
+- [ ] 长按、快速按键、矩阵多键/抖动、EXIT时持PTT/双PTT侧键，确认不产生意外RF；不能只观察红灯。
+- [ ] 按设备不同双守/亚音/MDC/Yan/省电配置进出，退出后接收和下一次正常发射恢复。
+- [ ] 低电量警告及关机、USB/UART配置、背光超时和自动休眠交互。
+- [ ] MCU调用链、USB/SysTick/ADC中断嵌套下的真实栈水位与长期运行。
+- [ ] FM、频谱（原Fusion）、CW（原Game）、AirCopy等真实设备回归。
+
+设备射频、刷机或数据写入需要用户明确授权；本轮没有主动发射、刷机或改动设备数据。仅对当前PY32F071支持的硬件版本讨论，不承诺所有UV-K5/K6/K1机型通用。

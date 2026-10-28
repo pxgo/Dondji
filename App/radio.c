@@ -23,6 +23,9 @@
 #include "app/mdc1200.h"
 #include "app/mdc1200_app.h"
 #include "app/yan_id_rf.h"
+#ifdef ENABLE_GAME_SNAKE
+#include "app/game.h"
+#endif
 #ifdef ENABLE_FMRADIO
     #include "app/fm.h"
 #endif
@@ -811,6 +814,10 @@ BK4819_FilterBandwidth_t RADIO_GetAMFilterBandwidth(const VFO_Info_t *pVfo)
 
 void RADIO_SetupRegisters(bool switchToForeground)
 {
+#ifdef ENABLE_GAME_SNAKE
+    if (GAME_IsActive())
+        return;
+#endif
     BK4819_FilterBandwidth_t Bandwidth = gRxVfo->CHANNEL_BANDWIDTH;
 
     #ifdef ENABLE_FEAT_F4HWN_NARROWER
@@ -982,6 +989,9 @@ void RADIO_SetupRegisters(bool switchToForeground)
 
 #ifdef ENABLE_VOX
     if (gEeprom.VOX_SWITCH  && gCurrentVfo->Modulation == MODULATION_FM
+    #ifdef ENABLE_GAME_SNAKE
+            && !GAME_TxBlocked()
+    #endif
 #ifdef ENABLE_NOAA
         && !IS_NOAA_CHANNEL(gCurrentVfo->CHANNEL_SAVE)
 #endif
@@ -1074,6 +1084,10 @@ void RADIO_SetupRegisters(bool switchToForeground)
 
 void RADIO_SetTxParameters(void)
 {
+#ifdef ENABLE_GAME_SNAKE
+    if (GAME_TxBlocked())
+        return;
+#endif
     BK4819_FilterBandwidth_t Bandwidth = gCurrentVfo->CHANNEL_BANDWIDTH;
 
     #ifdef ENABLE_FEAT_F4HWN_NARROWER
@@ -1307,6 +1321,10 @@ void RADIO_SetVfoState(VfoState_t State)
 
 void RADIO_PrepareTX(void)
 {
+#ifdef ENABLE_GAME_SNAKE
+    if (GAME_TxBlocked())
+        return;
+#endif
     VfoState_t State = VFO_STATE_NORMAL;  // default to OK to TX
 
     if (gEeprom.DUAL_WATCH != DUAL_WATCH_OFF)
@@ -1468,6 +1486,10 @@ void RADIO_SendEndOfTransmission(void)
 
 void RADIO_PrepareCssTX(void)
 {
+#ifdef ENABLE_GAME_SNAKE
+    if (GAME_TxBlocked())
+        return;
+#endif
     RADIO_PrepareTX();
 
     SYSTEM_DelayMs(200);

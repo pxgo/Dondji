@@ -36,6 +36,9 @@
 #include "app/generic.h"
 #include "app/main.h"
 #include "app/menu.h"
+#ifdef ENABLE_GAME_SNAKE
+#include "app/game.h"
+#endif
 #include "app/mdc1200.h"
 #include "app/mdc1200_app.h"
 #include "app/yan_id_rf.h"
@@ -93,6 +96,9 @@ void (*ProcessKeysFunctions[])(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld) 
     [DISPLAY_MAIN] = &MAIN_ProcessKeys,
     [DISPLAY_MENU] = &MENU_ProcessKeys,
     [DISPLAY_SCANNER] = &SCANNER_ProcessKeys,
+    #ifdef ENABLE_GAME_SNAKE
+        [DISPLAY_GAME] = &GAME_ProcessKeys,
+    #endif
 
 #ifdef ENABLE_FMRADIO
     [DISPLAY_FM] = &FM_ProcessKeys,
@@ -804,6 +810,10 @@ void APP_EndTransmission(void)
 #ifdef ENABLE_VOX
 static void HandleVox(void)
 {
+#ifdef ENABLE_GAME_SNAKE
+    if (GAME_TxBlocked())
+        return;
+#endif
 #ifdef ENABLE_DTMF_CALLING
     if (gSetting_KILLED)
         return;
@@ -893,9 +903,17 @@ void APP_Update(void)
 #ifdef ENABLE_USB
     if (UART_IsCommandAvailable(UART_PORT_VCP)) {
         // SCHEDULER_Disable();
+#ifdef ENABLE_GAME_SNAKE
+        GAME_Leave();
+#endif
         UART_HandleCommand(UART_PORT_VCP);
         // SCHEDULER_Enable();
     }
+#endif
+
+#ifdef ENABLE_GAME_SNAKE
+    if (GAME_IsActive())
+        return;
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN
@@ -1113,6 +1131,10 @@ void StopTransmitting(void) {
 // called every 10ms
 void CheckKeys(void)
 {
+#ifdef ENABLE_GAME_SNAKE
+    if (GAME_CheckRelease())
+        return;
+#endif
 #ifdef ENABLE_DTMF_CALLING
     if(gSetting_KILLED){
         return;
@@ -1245,7 +1267,11 @@ void APP_TimeSlice10ms(void)
     gFlashLightBlinkCounter++;
 
 #ifdef ENABLE_AM_FIX
-    if (gRxVfo->Modulation == MODULATION_AM) {
+    if (gRxVfo->Modulation == MODULATION_AM
+#ifdef ENABLE_GAME_SNAKE
+        && !GAME_IsActive()
+#endif
+    ) {
         AM_fix_10ms(gEeprom.RX_VFO);
     }
 #endif
@@ -1253,6 +1279,9 @@ void APP_TimeSlice10ms(void)
 #ifdef ENABLE_UART
     if (UART_IsCommandAvailable(UART_PORT_UART)) {
         // SCHEDULER_Disable();
+#ifdef ENABLE_GAME_SNAKE
+        GAME_Leave();
+#endif
         UART_HandleCommand(UART_PORT_UART);
         // SCHEDULER_Enable();
     }
@@ -1260,6 +1289,21 @@ void APP_TimeSlice10ms(void)
 
     if (gReducedService)
         return;
+
+#ifdef ENABLE_GAME_SNAKE
+    if (GAME_IsActive()) {
+        GAME_Tick10ms();
+        if (GAME_IsActive() && (gUpdateDisplay || gUpdateStatus)) {
+            gUpdateDisplay = false;
+            gUpdateStatus = false;
+            GUI_DisplayScreen();
+        }
+#ifdef ENABLE_FLASHLIGHT
+        Flashlight_BreathTick();
+#endif
+        return;
+    }
+#endif
 
     if (gCurrentFunction != FUNCTION_POWER_SAVE || !gRxIdleMode)
         CheckRadioInterrupts();
@@ -1514,8 +1558,13 @@ void APP_TimeSlice500ms(void)
             DTMF_clear_RX();
 #endif
 
-    MDC1200_AppTick500ms();
-    YAN_RF_Tick500ms();
+#ifdef ENABLE_GAME_SNAKE
+    if (!GAME_IsActive())
+#endif
+    {
+        MDC1200_AppTick500ms();
+        YAN_RF_Tick500ms();
+    }
 
     // Skipped authentic device check
 
@@ -1549,9 +1598,17 @@ void APP_TimeSlice500ms(void)
     }
 
     #ifdef ENABLE_AIRCOPY
-    if(gCurrentFunction != FUNCTION_TRANSMIT && !FUNCTION_IsRx() && gScreenToDisplay != DISPLAY_AIRCOPY)
+    if(gCurrentFunction != FUNCTION_TRANSMIT && !FUNCTION_IsRx() && gScreenToDisplay != DISPLAY_AIRCOPY
+#ifdef ENABLE_GAME_SNAKE
+        && !GAME_IsActive()
+#endif
+    )
     #else
-    if(gCurrentFunction != FUNCTION_TRANSMIT && !FUNCTION_IsRx())
+    if(gCurrentFunction != FUNCTION_TRANSMIT && !FUNCTION_IsRx()
+#ifdef ENABLE_GAME_SNAKE
+        && !GAME_IsActive()
+#endif
+    )
     #endif
     {
         if (gSleepModeCountdown_500ms > 0 && --gSleepModeCountdown_500ms == 0) {
@@ -1625,6 +1682,18 @@ void APP_TimeSlice500ms(void)
             BATTERY_GetReadings(true);
         }
     }
+
+#ifdef ENABLE_GAME_SNAKE
+    if (GAME_IsActive()) {
+        if (gLowBattery && !gChargingWithTypeC) {
+            GAME_Leave();
+            GUI_SelectNextDisplay(DISPLAY_MAIN);
+        }
+        /* Preserve battery warnings/shutdown, but skip radio and auto-lock timers. */
+        BATTERY_TimeSlice500ms();
+        return;
+    }
+#endif
 
     /*
      * 顶栏电量等：不用约 2s 定时强刷。
@@ -1805,6 +1874,14 @@ static void ALARM_Off(void)
 
 static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 {
+#ifdef ENABLE_GAME_SNAKE
+    if (GAME_IsActive()) {
+        GAME_ProcessKeys(Key, bKeyPressed, bKeyHeld);
+        return;
+    }
+    if (GAME_TxBlocked())
+        return;
+#endif
     #ifdef ENABLE_FEAT_F4HWN_SLEEP
     if(gWakeUp)
     {
@@ -2122,6 +2199,14 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     }
 
 Skip:
+#ifdef ENABLE_GAME_SNAKE
+    /* The MENU event may have entered a game halfway through this call. */
+    if (GAME_IsActive()) {
+        gBeepToPlay = BEEP_NONE;
+        gRequestDisplayScreen = DISPLAY_INVALID;
+        return;
+    }
+#endif
     if (gBeepToPlay != BEEP_NONE) {
         AUDIO_PlayBeep(gBeepToPlay);
         gBeepToPlay = BEEP_NONE;

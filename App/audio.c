@@ -19,6 +19,9 @@
     #include "app/fm.h"
 #endif
 #include "audio.h"
+#ifdef ENABLE_GAME_SNAKE
+#include "app/game.h"
+#endif
 #ifdef ENABLE_FMRADIO
     #include "driver/bk1080.h"
 #endif
@@ -45,6 +48,11 @@ static void AUDIO_PlayBeepPulse(void) {
 
 void AUDIO_PlayBeep(BEEP_Type_t Beep)
 {
+#ifdef ENABLE_GAME_SNAKE
+    /* Tone teardown turns RX back on, so games must remain silent. */
+    if (GAME_IsActive())
+        return;
+#endif
 
     if (Beep != BEEP_880HZ_60MS_DOUBLE_BEEP &&
         Beep != BEEP_500HZ_60MS_DOUBLE_BEEP &&

@@ -45,6 +45,9 @@
 #include "app/action.h"
 #include "app/generic.h"
 #include "app/menu.h"
+#ifdef ENABLE_GAME_SNAKE
+#include "app/game.h"
+#endif
 #include "app/mdc1200.h"
 #include "app/scanner.h"
 #include "audio.h"
@@ -886,7 +889,7 @@ void MENU_ActivateMainPage(void)
         gSubMenuSelection = gMenuMainPageLastIconIndex;
     else
         gSubMenuSelection = 0; // default Channel on cold start
-    /* gSubMenuSelection is only a launcher icon index (0..4); never reuse raw menu values here */
+    /* gSubMenuSelection is only a launcher icon index; never reuse raw menu values here */
     gMenuMainPageIconIndex = (icon_count > 0) ? ((uint8_t)gSubMenuSelection % icon_count) : 0u;
 }
 
@@ -899,7 +902,11 @@ void MENU_OpenFromMainScreen(void)
 
 uint8_t MENU_MainPageIconCount(void)
 {
+#ifdef ENABLE_GAME_SNAKE
+    return 6;
+#else
     return 5;
+#endif
 }
 
 uint8_t MENU_GetActiveMenuCount(void)
@@ -3163,6 +3170,18 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
 {
     if (bKeyHeld || !bKeyPressed)
         return;
+
+#ifdef ENABLE_GAME_SNAKE
+    if (gMenuMainPageActive && !gIsInSubMenu && gSubMenuSelection == 5) {
+        if (GAME_Enter()) {
+            gMenuMainPageLastValid = true;
+            gMenuMainPageLastIconIndex = 5;
+        } else {
+            gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+        }
+        return;
+    }
+#endif
 
     gBeepToPlay           = BEEP_1KHZ_60MS_OPTIONAL;
     gRequestDisplayScreen = DISPLAY_MENU;

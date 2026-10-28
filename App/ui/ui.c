@@ -20,6 +20,10 @@
 #include "app/chFrScanner.h"
 #include "app/dtmf.h"
 #include "app/menu.h"
+#ifdef ENABLE_GAME_SNAKE
+#include "app/game.h"
+#include "ui/game.h"
+#endif
 #ifdef ENABLE_FMRADIO
     #include "app/fm.h"
 #endif
@@ -62,6 +66,10 @@ void (*UI_DisplayFunctions[])(void) = {
     [DISPLAY_AIRCOPY] = &UI_DisplayAircopy,
 #endif
 
+#ifdef ENABLE_GAME_SNAKE
+    [DISPLAY_GAME] = &UI_DisplayGame,
+#endif
+
 #ifdef ENABLE_REGA
     [DISPLAY_REGA] = &UI_DisplayREGA,
 #endif
@@ -83,6 +91,10 @@ void GUI_SelectNextDisplay(GUI_DisplayType_t Display)
 
     if (gScreenToDisplay != Display)
     {
+#ifdef ENABLE_GAME_SNAKE
+        if (GAME_IsActive() && Display != DISPLAY_GAME)
+            GAME_OnLeave();
+#endif
         DTMF_clear_input_box();
 
         gInputBoxIndex       = 0;

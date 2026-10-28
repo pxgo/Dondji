@@ -16,6 +16,9 @@ bool YAN_RF_ReceiveEnabled(void);
 bool YAN_RF_Send(void);
 void YAN_RF_EnableRx(void);
 void YAN_RF_DisableRx(void);
+#ifdef ENABLE_GAME_SNAKE
+void YAN_RF_AbortRx(void);
+#endif
 void YAN_RF_OnRadioInterrupt(uint16_t irq02_bits);
 void YAN_RF_Tick10ms(void);
 void YAN_RF_Tick500ms(void);
